@@ -1,0 +1,155 @@
+from datetime import datetime
+from typing import Any, Dict, List
+
+from app.core.logging import logger
+from app.llm.client import call_llm_json
+
+
+def retrieve_unstructured_memory(
+    user_vectorstore,
+    message: str,
+    user_id: str,
+    relevant_types: List[str],
+    k: int = 5,
+) -> List[Dict]:
+    """
+    Retrieve top-k relevant unstructured memories for a user, combining the user message
+    with LLM-identified relevant keys/types.
+    """
+    logger.info("[RETRIEVAL SYSTEM]: Start retrieving unstructured user data.")
+
+    search_query = " ".join([message] + relevant_types)
+    try:
+        results = user_vectorstore.similarity_search_with_score(
+            query=search_query,
+            k=k * 2,
+            filter={"user_id": user_id},
+        )
+        scored = []
+
+        for doc, distance in results:
+            similarity = 1 - distance
+
+            timestamp = doc.metadata.get("timestamp")
+
+            if timestamp:
+                dt = datetime.fromisoformat(timestamp)
+                age_days = (datetime.now() - dt).days
+            else:
+                age_days = 999
+
+            recency_score = max(0, 1 - age_days / 30)
+            combined_score = similarity * 0.7 + recency_score * 0.3
+
+            scored.append(
+                {
+                    "text": doc.page_content,
+                    "type": doc.metadata.get("type"),
+                    "score": combined_score,
+                }
+            )
+
+        scored = sorted(scored, key=lambda x: x["score"], reverse=True)
+
+        logger.info("[RETRIEVAL SYSTEM]: ✅ Successfully retrieved unstructured user data.")
+        return scored[:k]
+
+    except Exception as e:
+        logger.error(f"[RETRIEVAL SYSTEM]: ❌ Error while retrieving unstructured user data: {str(e)}")
+        return []
+
+
+def retrieve_knowledge_docs(knowledge_vectorstore, message: str, k: int = 5) -> List[Dict]:
+    """
+    Retrieve top-k knowledge chunks relevant to the user's message.
+    """
+    logger.info("[RETRIEVAL SYSTEM]: Start retrieving knowledge base data.")
+
+    try:
+        results = knowledge_vectorstore.similarity_search_with_score(query=message, k=k)
+
+        scored = []
+        for doc, distance in results:
+            scored.append(
+                {
+                    "text": doc.page_content,
+                    "category": doc.metadata.get("category"),
+                    "tags": doc.metadata.get("tags"),
+                    "score": 1 - distance,
+                }
+            )
+
+        scored = sorted(scored, key=lambda x: x["score"], reverse=True)
+        logger.info("[RETRIEVAL SYSTEM]: ✅ Successfully retrieved knowledge base data.")
+        return scored[:k]
+
+    except Exception as e:
+        logger.error(f"[RETRIEVAL SYSTEM]: ❌ Error while retrieving knowledge base data: {str(e)}")
+        return []
+
+
+def retrieve_relevant_context_for_user(all_context: dict, message: str, k: int = 5):
+    """
+    Takes combined structured, unstructured, and knowledge contexts and ranks the top-k
+    relevant entries for the given user message using an LLM.
+    """
+    logger.info("[RETRIEVAL SYSTEM]: Start retrieving and ranking relevant context data.")
+
+    ranking_prompt = f"""
+    You are an AI assistant that ranks memory and knowledge context for another AI assistant.
+
+    User message:
+    "{message}"
+
+    Your job:
+    Select the MOST relevant items from the provided context.
+
+    RULES:
+    - Do NOT invent new data
+    - ONLY return items from the lists
+    - Keep original structure
+    - Be strict and selective
+
+    Return TOP {k} per category.
+
+    OUTPUT (JSON ONLY):
+    {{
+      "structured": [...],
+      "unstructured": [...],
+      "knowledge": [...]
+    }}
+
+    Structured:
+    {all_context.get("structured", [])}
+
+    Unstructured:
+    {all_context.get("unstructured", [])}
+
+    Knowledge:
+    {all_context.get("knowledge", [])}
+    """
+    try:
+        output = call_llm_json(
+            ranking_prompt,
+            default={
+                "structured": all_context.get("structured", [])[:k],
+                "unstructured": all_context.get("unstructured", [])[:k],
+                "knowledge": all_context.get("knowledge", [])[:k],
+            },
+        )
+
+        if not isinstance(output, dict):
+            return {
+                "structured": all_context.get("structured", [])[:k],
+                "unstructured": all_context.get("unstructured", [])[:k],
+                "knowledge": all_context.get("knowledge", [])[:k],
+            }
+        logger.info("[RETRIEVAL SYSTEM]: ✅ Successfully retrieved relevant context data.")
+        return output
+    except Exception as e:
+        logger.error(f"[RETRIEVAL SYSTEM]: ❌ Error while retrieving relevant context data: {str(e)}")
+        return {
+            "structured": all_context.get("structured", [])[:k],
+            "unstructured": all_context.get("unstructured", [])[:k],
+            "knowledge": all_context.get("knowledge", [])[:k],
+        }
