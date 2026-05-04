@@ -3,6 +3,7 @@ import os
 from typing import Any, Dict, List
 
 from app.core.logging import logger
+from app.repositories.memory_decision_log import append_memory_decision_log
 from app.core.settings import USER_INFO_PATH
 from app.models.memory import IMMUTABLE_KEYS, MEMORY_SCHEMA
 
@@ -55,13 +56,15 @@ def controlled_structured_data_storage(user_id: str, key: str, value: str, categ
 
     if not is_valid_key(key, category):
         logger.info(f"[MEMORY STORAGE]: IGNORED: Key: {key} is not allowed in {category}.")
-        return build_structured_storage_result(
+        result = build_structured_storage_result(
             decision="ignored",
             field=key,
             category=category,
             proposed_value=value,
             reason="invalid schema key",
         )
+        append_memory_decision_log(user_id=user_id, result=result)
+        return result
 
     try:
         os.makedirs(os.path.dirname(USER_INFO_PATH), exist_ok=True)
@@ -72,7 +75,7 @@ def controlled_structured_data_storage(user_id: str, key: str, value: str, categ
         if key in IMMUTABLE_KEYS and existing_value is not None:
             if str(existing_value) == str(value):
                 logger.info(f"[MEMORY STORAGE]: No change for {key}")
-                return build_structured_storage_result(
+                result = build_structured_storage_result(
                     decision="no_change",
                     field=key,
                     category=category,
@@ -80,11 +83,13 @@ def controlled_structured_data_storage(user_id: str, key: str, value: str, categ
                     proposed_value=value,
                     reason="same immutable value",
                 )
+                append_memory_decision_log(user_id=user_id, result=result)
+                return result
             # TODO: Replace this with an explicit confirmation/correction flow.
             logger.info(
                 f"[MEMORY STORAGE]: IGNORED: Key: {key} is write-once immutable and cannot be overwritten."
             )
-            return build_structured_storage_result(
+            result = build_structured_storage_result(
                 decision="needs_confirmation",
                 field=key,
                 category=category,
@@ -92,6 +97,8 @@ def controlled_structured_data_storage(user_id: str, key: str, value: str, categ
                 proposed_value=value,
                 reason="immutable field conflict",
             )
+            append_memory_decision_log(user_id=user_id, result=result)
+            return result
 
         if user_id not in data:
             data[user_id] = {}
@@ -104,7 +111,7 @@ def controlled_structured_data_storage(user_id: str, key: str, value: str, categ
             with open(USER_INFO_PATH, "w") as f:
                 json.dump(data, f, indent=2)
             logger.info(f"[MEMORY STORAGE]: ✅ Structured User data storage success: Stored {key}: {value}")
-            return build_structured_storage_result(
+            result = build_structured_storage_result(
                 decision="stored",
                 field=key,
                 category=category,
@@ -112,8 +119,10 @@ def controlled_structured_data_storage(user_id: str, key: str, value: str, categ
                 proposed_value=value,
                 reason="value stored",
             )
+            append_memory_decision_log(user_id=user_id, result=result)
+            return result
         logger.info(f"[MEMORY STORAGE]: No change for {key}")
-        return build_structured_storage_result(
+        result = build_structured_storage_result(
             decision="no_change",
             field=key,
             category=category,
@@ -121,6 +130,8 @@ def controlled_structured_data_storage(user_id: str, key: str, value: str, categ
             proposed_value=value,
             reason="same value",
         )
+        append_memory_decision_log(user_id=user_id, result=result)
+        return result
     except Exception as e:
         logger.error(f"[MEMORY STORAGE]: ❌ Error while storing structured User data: {str(e)}")
         return

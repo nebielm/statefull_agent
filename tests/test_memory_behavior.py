@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from langchain_core.messages import AIMessage, HumanMessage
 
+from app.repositories import memory_decision_log
 from app.repositories import user_memory
 from app.services import graph, tools
 from app.utils.dates import calculate_age_from_birthdate
@@ -11,7 +12,9 @@ from app.utils.dates import calculate_age_from_birthdate
 
 def test_birthdate_is_saved_when_missing(tmp_path, monkeypatch):
     data_file = tmp_path / "user_info.json"
+    log_file = tmp_path / "memory_decision_log.jsonl"
     monkeypatch.setattr(user_memory, "USER_INFO_PATH", str(data_file))
+    monkeypatch.setattr(memory_decision_log, "MEMORY_DECISION_LOG_PATH", str(log_file))
     monkeypatch.setattr(
         graph,
         "extract_memory_updates",
@@ -44,12 +47,15 @@ def test_birthdate_is_saved_when_missing(tmp_path, monkeypatch):
             "reason": "value stored",
         }
     ]
+    assert json.loads(log_file.read_text().strip())["field"] == "birthdate"
 
 
 def test_birthdate_is_not_overwritten_when_already_present(tmp_path, monkeypatch):
     data_file = tmp_path / "user_info.json"
+    log_file = tmp_path / "memory_decision_log.jsonl"
     data_file.write_text(json.dumps({"user-1": {"profile": {"birthdate": "1995-04-12"}}}))
     monkeypatch.setattr(user_memory, "USER_INFO_PATH", str(data_file))
+    monkeypatch.setattr(memory_decision_log, "MEMORY_DECISION_LOG_PATH", str(log_file))
 
     result = user_memory.controlled_structured_data_storage(
         user_id="user-1",
@@ -68,12 +74,15 @@ def test_birthdate_is_not_overwritten_when_already_present(tmp_path, monkeypatch
     }
     stored = json.loads(data_file.read_text())
     assert stored == {"user-1": {"profile": {"birthdate": "1995-04-12"}}}
+    assert json.loads(log_file.read_text().strip())["decision"] == "needs_confirmation"
 
 
 def test_same_immutable_value_is_no_op(tmp_path, monkeypatch):
     data_file = tmp_path / "user_info.json"
+    log_file = tmp_path / "memory_decision_log.jsonl"
     data_file.write_text(json.dumps({"user-1": {"profile": {"birthdate": "1995-04-12"}}}))
     monkeypatch.setattr(user_memory, "USER_INFO_PATH", str(data_file))
+    monkeypatch.setattr(memory_decision_log, "MEMORY_DECISION_LOG_PATH", str(log_file))
 
     result = user_memory.controlled_structured_data_storage(
         user_id="user-1",
@@ -92,6 +101,7 @@ def test_same_immutable_value_is_no_op(tmp_path, monkeypatch):
     }
     stored = json.loads(data_file.read_text())
     assert stored == {"user-1": {"profile": {"birthdate": "1995-04-12"}}}
+    assert json.loads(log_file.read_text().strip())["decision"] == "no_change"
 
 
 def test_unrelated_message_does_not_overwrite_birthdate(tmp_path, monkeypatch):
@@ -121,8 +131,10 @@ def test_unrelated_message_does_not_overwrite_birthdate(tmp_path, monkeypatch):
 
 def test_another_person_birthdate_does_not_overwrite_user_birthdate(tmp_path, monkeypatch):
     data_file = tmp_path / "user_info.json"
+    log_file = tmp_path / "memory_decision_log.jsonl"
     data_file.write_text(json.dumps({"user-1": {"profile": {"birthdate": "1995-04-12"}}}))
     monkeypatch.setattr(user_memory, "USER_INFO_PATH", str(data_file))
+    monkeypatch.setattr(memory_decision_log, "MEMORY_DECISION_LOG_PATH", str(log_file))
     monkeypatch.setattr(
         graph,
         "extract_memory_updates",
@@ -155,6 +167,7 @@ def test_another_person_birthdate_does_not_overwrite_user_birthdate(tmp_path, mo
             "reason": "immutable field conflict",
         }
     ]
+    assert json.loads(log_file.read_text().strip())["proposed_value"] == "2001-02-03"
 
 
 def test_birthdate_is_retrieved_for_age_question(tmp_path, monkeypatch):

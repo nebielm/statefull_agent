@@ -1,5 +1,6 @@
 import json
 
+from app.repositories import memory_decision_log
 from app.repositories import user_memory
 
 
@@ -28,7 +29,9 @@ def test_is_valid_key_blocks_immutable_and_unknown_keys():
 
 def test_controlled_structured_data_storage_writes_expected_json(tmp_path, monkeypatch):
     data_file = tmp_path / "user_info.json"
+    log_file = tmp_path / "memory_decision_log.jsonl"
     monkeypatch.setattr(user_memory, "USER_INFO_PATH", str(data_file))
+    monkeypatch.setattr(memory_decision_log, "MEMORY_DECISION_LOG_PATH", str(log_file))
 
     result = user_memory.controlled_structured_data_storage(
         user_id="user-1",
@@ -47,12 +50,15 @@ def test_controlled_structured_data_storage_writes_expected_json(tmp_path, monke
     }
     stored = json.loads(data_file.read_text())
     assert stored == {"user-1": {"profile": {"city": "Berlin"}}}
+    assert json.loads(log_file.read_text().strip())["decision"] == "stored"
 
 
 def test_controlled_structured_data_storage_reports_no_change(tmp_path, monkeypatch):
     data_file = tmp_path / "user_info.json"
+    log_file = tmp_path / "memory_decision_log.jsonl"
     data_file.write_text(json.dumps({"user-1": {"profile": {"city": "Berlin"}}}))
     monkeypatch.setattr(user_memory, "USER_INFO_PATH", str(data_file))
+    monkeypatch.setattr(memory_decision_log, "MEMORY_DECISION_LOG_PATH", str(log_file))
 
     result = user_memory.controlled_structured_data_storage(
         user_id="user-1",
@@ -73,7 +79,9 @@ def test_controlled_structured_data_storage_reports_no_change(tmp_path, monkeypa
 
 def test_controlled_structured_data_storage_rejects_invalid_schema_key(tmp_path, monkeypatch):
     data_file = tmp_path / "user_info.json"
+    log_file = tmp_path / "memory_decision_log.jsonl"
     monkeypatch.setattr(user_memory, "USER_INFO_PATH", str(data_file))
+    monkeypatch.setattr(memory_decision_log, "MEMORY_DECISION_LOG_PATH", str(log_file))
 
     result = user_memory.controlled_structured_data_storage(
         user_id="user-1",
@@ -91,12 +99,15 @@ def test_controlled_structured_data_storage_rejects_invalid_schema_key(tmp_path,
         "reason": "invalid schema key",
     }
     assert not data_file.exists()
+    assert json.loads(log_file.read_text().strip())["decision"] == "ignored"
 
 
 def test_immutable_field_conflict_returns_needs_confirmation(tmp_path, monkeypatch):
     data_file = tmp_path / "user_info.json"
+    log_file = tmp_path / "memory_decision_log.jsonl"
     data_file.write_text(json.dumps({"user-1": {"profile": {"birthdate": "1995-04-12"}}}))
     monkeypatch.setattr(user_memory, "USER_INFO_PATH", str(data_file))
+    monkeypatch.setattr(memory_decision_log, "MEMORY_DECISION_LOG_PATH", str(log_file))
 
     result = user_memory.controlled_structured_data_storage(
         user_id="user-1",
@@ -115,6 +126,7 @@ def test_immutable_field_conflict_returns_needs_confirmation(tmp_path, monkeypat
     }
     stored = json.loads(data_file.read_text())
     assert stored == {"user-1": {"profile": {"birthdate": "1995-04-12"}}}
+    assert json.loads(log_file.read_text().strip())["decision"] == "needs_confirmation"
 
 
 def test_retrieve_structured_memory_filters_by_category_and_key(tmp_path, monkeypatch):

@@ -16,6 +16,7 @@ DATA_DIR = PROJECT_ROOT / "data"
 CORE_KNOWLEDGE_DIR = str(DATA_DIR / "core_knowledge")
 USER_MEMORY_DIR = str(DATA_DIR / "user_memory")
 USER_INFO_PATH = str(DATA_DIR / "user_info.json")
+MEMORY_DECISION_LOG_PATH = str(DATA_DIR / "memory_decision_log.jsonl")
 
 CORE_KNOWLEDGE_COLLECTION = "core_knowledge"
 USER_MEMORY_COLLECTION = "user_memory"
