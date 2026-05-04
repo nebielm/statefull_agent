@@ -5,6 +5,44 @@ from app.core.logging import logger
 from app.llm.client import call_llm_json
 
 
+def build_context_fallback(all_context: dict, k: int = 5):
+    fallback = {}
+    for category in ("structured", "unstructured", "knowledge"):
+        items = all_context.get(category, [])
+        fallback[category] = items[:k] if isinstance(items, list) else []
+    return fallback
+
+
+def normalize_ranked_context(output, all_context: dict, k: int = 5):
+    fallback = build_context_fallback(all_context, k)
+    if not isinstance(output, dict):
+        return fallback
+
+    normalized = {}
+    for category in ("structured", "unstructured", "knowledge"):
+        source_items = fallback[category]
+
+        if category not in output:
+            normalized[category] = source_items
+            continue
+
+        ranked_items = output.get(category)
+        if not isinstance(ranked_items, list):
+            normalized[category] = source_items
+            continue
+
+        filtered = []
+        for item in ranked_items:
+            if item in source_items and item not in filtered:
+                filtered.append(item)
+            if len(filtered) >= k:
+                break
+
+        normalized[category] = filtered
+
+    return normalized
+
+
 def retrieve_unstructured_memory(
     user_vectorstore,
     message: str,
@@ -128,28 +166,16 @@ def retrieve_relevant_context_for_user(all_context: dict, message: str, k: int =
     Knowledge:
     {all_context.get("knowledge", [])}
     """
+    fallback = build_context_fallback(all_context, k)
     try:
         output = call_llm_json(
             ranking_prompt,
-            default={
-                "structured": all_context.get("structured", [])[:k],
-                "unstructured": all_context.get("unstructured", [])[:k],
-                "knowledge": all_context.get("knowledge", [])[:k],
-            },
+            default=fallback,
         )
 
-        if not isinstance(output, dict):
-            return {
-                "structured": all_context.get("structured", [])[:k],
-                "unstructured": all_context.get("unstructured", [])[:k],
-                "knowledge": all_context.get("knowledge", [])[:k],
-            }
+        normalized_output = normalize_ranked_context(output, all_context, k)
         logger.info("[RETRIEVAL SYSTEM]: ✅ Successfully retrieved relevant context data.")
-        return output
+        return normalized_output
     except Exception as e:
         logger.error(f"[RETRIEVAL SYSTEM]: ❌ Error while retrieving relevant context data: {str(e)}")
-        return {
-            "structured": all_context.get("structured", [])[:k],
-            "unstructured": all_context.get("unstructured", [])[:k],
-            "knowledge": all_context.get("knowledge", [])[:k],
-        }
+        return fallback
