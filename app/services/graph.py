@@ -7,6 +7,7 @@ from app.core.logging import logger
 from app.llm.extractors import extract_ephemeral_updates, extract_memory_updates, extract_retrieval_plan
 from app.repositories.user_memory import controlled_structured_data_storage, retrieve_structured_memory
 from app.schemas.state import AgentState
+from app.services.memory_confirmation import apply_confirmation_prompt_to_state, build_pending_memory_confirmation
 from app.services.memory import controlled_unstructured_data_storage
 from app.services.retrieval import (
     retrieve_knowledge_docs,
@@ -102,6 +103,21 @@ def memory_updater_node(state: AgentState, runtime: Runtime) -> AgentState:
                 user_id=user_id,
             )
             state["memory_updates"]["structured_results"].append(result)
+
+        pending_confirmation = next(
+            (
+                build_pending_memory_confirmation(result)
+                for result in state["memory_updates"]["structured_results"]
+                if build_pending_memory_confirmation(result) is not None
+            ),
+            None,
+        )
+        if pending_confirmation is not None:
+            state["memory_updates"]["pending_confirmation"] = pending_confirmation
+            # TODO: Add a follow-up step that can apply confirmed immutable updates on a later turn.
+            apply_confirmation_prompt_to_state(state, pending_confirmation)
+        else:
+            state["memory_updates"].pop("pending_confirmation", None)
 
         for item in memory_updates.get("unstructured", []):
             controlled_unstructured_data_storage(

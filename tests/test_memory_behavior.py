@@ -47,6 +47,7 @@ def test_birthdate_is_saved_when_missing(tmp_path, monkeypatch):
             "reason": "value stored",
         }
     ]
+    assert "pending_confirmation" not in state["memory_updates"]
     assert json.loads(log_file.read_text().strip())["field"] == "birthdate"
 
 
@@ -167,7 +168,84 @@ def test_another_person_birthdate_does_not_overwrite_user_birthdate(tmp_path, mo
             "reason": "immutable field conflict",
         }
     ]
+    assert state["memory_updates"]["pending_confirmation"] == {
+        "field": "birthdate",
+        "category": "profile",
+        "existing_value": "1995-04-12",
+        "proposed_value": "2001-02-03",
+        "reason": "immutable field conflict",
+    }
+    assert "Do you want me to replace it with 2001-02-03?" in state["messages"][-1].content
     assert json.loads(log_file.read_text().strip())["proposed_value"] == "2001-02-03"
+
+
+def test_conflict_generates_confirmation_message_with_existing_and_proposed_values(tmp_path, monkeypatch):
+    data_file = tmp_path / "user_info.json"
+    data_file.write_text(json.dumps({"user-1": {"profile": {"birthdate": "1995-04-12"}}}))
+    monkeypatch.setattr(user_memory, "USER_INFO_PATH", str(data_file))
+    monkeypatch.setattr(
+        graph,
+        "extract_memory_updates",
+        lambda text: {
+            "structured": [{"key": "birthdate", "value": "1996-04-12", "category": "profile"}],
+            "unstructured": [],
+        },
+    )
+
+    state = {
+        "user_id": "user-1",
+        "messages": [
+            HumanMessage(content="My birthdate is actually 1996-04-12."),
+            AIMessage(content="Thanks for the correction."),
+        ],
+        "memory_updates": {},
+    }
+    runtime = SimpleNamespace(context={"user_vectorstore": object()})
+
+    graph.memory_updater_node(state, runtime)
+
+    assert state["messages"][-1].content == (
+        "Thanks for the correction.\n\n"
+        "I currently have 1995-04-12 saved as your birthdate. "
+        "Do you want me to replace it with 1996-04-12?"
+    )
+    assert state["memory_updates"]["pending_confirmation"] == {
+        "field": "birthdate",
+        "category": "profile",
+        "existing_value": "1995-04-12",
+        "proposed_value": "1996-04-12",
+        "reason": "immutable field conflict",
+    }
+    stored = json.loads(data_file.read_text())
+    assert stored == {"user-1": {"profile": {"birthdate": "1995-04-12"}}}
+
+
+def test_non_conflicting_results_do_not_generate_confirmation_message(tmp_path, monkeypatch):
+    data_file = tmp_path / "user_info.json"
+    monkeypatch.setattr(user_memory, "USER_INFO_PATH", str(data_file))
+    monkeypatch.setattr(
+        graph,
+        "extract_memory_updates",
+        lambda text: {
+            "structured": [{"key": "birthdate", "value": "1995-04-12", "category": "profile"}],
+            "unstructured": [],
+        },
+    )
+
+    state = {
+        "user_id": "user-1",
+        "messages": [
+            HumanMessage(content="I was born on 1995-04-12."),
+            AIMessage(content="Thanks, I will remember that."),
+        ],
+        "memory_updates": {},
+    }
+    runtime = SimpleNamespace(context={"user_vectorstore": object()})
+
+    graph.memory_updater_node(state, runtime)
+
+    assert state["messages"][-1].content == "Thanks, I will remember that."
+    assert "pending_confirmation" not in state["memory_updates"]
 
 
 def test_birthdate_is_retrieved_for_age_question(tmp_path, monkeypatch):
