@@ -37,7 +37,14 @@ def test_controlled_structured_data_storage_writes_expected_json(tmp_path, monke
         category="profile",
     )
 
-    assert result == "Stored city: Berlin"
+    assert result == {
+        "decision": "stored",
+        "field": "city",
+        "category": "profile",
+        "existing_value": None,
+        "proposed_value": "Berlin",
+        "reason": "value stored",
+    }
     stored = json.loads(data_file.read_text())
     assert stored == {"user-1": {"profile": {"city": "Berlin"}}}
 
@@ -54,7 +61,14 @@ def test_controlled_structured_data_storage_reports_no_change(tmp_path, monkeypa
         category="profile",
     )
 
-    assert result == "No change for city"
+    assert result == {
+        "decision": "no_change",
+        "field": "city",
+        "category": "profile",
+        "existing_value": "Berlin",
+        "proposed_value": "Berlin",
+        "reason": "same value",
+    }
 
 
 def test_controlled_structured_data_storage_rejects_invalid_schema_key(tmp_path, monkeypatch):
@@ -68,8 +82,39 @@ def test_controlled_structured_data_storage_rejects_invalid_schema_key(tmp_path,
         category="preferences",
     )
 
-    assert result == "city is not allowed in preferences."
+    assert result == {
+        "decision": "ignored",
+        "field": "city",
+        "category": "preferences",
+        "existing_value": None,
+        "proposed_value": "Berlin",
+        "reason": "invalid schema key",
+    }
     assert not data_file.exists()
+
+
+def test_immutable_field_conflict_returns_needs_confirmation(tmp_path, monkeypatch):
+    data_file = tmp_path / "user_info.json"
+    data_file.write_text(json.dumps({"user-1": {"profile": {"birthdate": "1995-04-12"}}}))
+    monkeypatch.setattr(user_memory, "USER_INFO_PATH", str(data_file))
+
+    result = user_memory.controlled_structured_data_storage(
+        user_id="user-1",
+        key="birthdate",
+        value="1996-04-12",
+        category="profile",
+    )
+
+    assert result == {
+        "decision": "needs_confirmation",
+        "field": "birthdate",
+        "category": "profile",
+        "existing_value": "1995-04-12",
+        "proposed_value": "1996-04-12",
+        "reason": "immutable field conflict",
+    }
+    stored = json.loads(data_file.read_text())
+    assert stored == {"user-1": {"profile": {"birthdate": "1995-04-12"}}}
 
 
 def test_retrieve_structured_memory_filters_by_category_and_key(tmp_path, monkeypatch):

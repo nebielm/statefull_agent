@@ -30,6 +30,24 @@ def is_valid_key(key, category):
     return key in MEMORY_SCHEMA.get(category, [])
 
 
+def build_structured_storage_result(
+    decision: str,
+    field: str,
+    category: str,
+    existing_value=None,
+    proposed_value=None,
+    reason: str | None = None,
+):
+    return {
+        "decision": decision,
+        "field": field,
+        "category": category,
+        "existing_value": existing_value,
+        "proposed_value": proposed_value,
+        "reason": reason,
+    }
+
+
 def controlled_structured_data_storage(user_id: str, key: str, value: str, category: str):
     logger.info(
         f"[MEMORY STORAGE]: Started structured user data storage for: key: {key}, value: {value}, category: {category}."
@@ -37,7 +55,13 @@ def controlled_structured_data_storage(user_id: str, key: str, value: str, categ
 
     if not is_valid_key(key, category):
         logger.info(f"[MEMORY STORAGE]: IGNORED: Key: {key} is not allowed in {category}.")
-        return f"{key} is not allowed in {category}."
+        return build_structured_storage_result(
+            decision="ignored",
+            field=key,
+            category=category,
+            proposed_value=value,
+            reason="invalid schema key",
+        )
 
     try:
         os.makedirs(os.path.dirname(USER_INFO_PATH), exist_ok=True)
@@ -48,12 +72,26 @@ def controlled_structured_data_storage(user_id: str, key: str, value: str, categ
         if key in IMMUTABLE_KEYS and existing_value is not None:
             if str(existing_value) == str(value):
                 logger.info(f"[MEMORY STORAGE]: No change for {key}")
-                return f"No change for {key}"
+                return build_structured_storage_result(
+                    decision="no_change",
+                    field=key,
+                    category=category,
+                    existing_value=existing_value,
+                    proposed_value=value,
+                    reason="same immutable value",
+                )
             # TODO: Replace this with an explicit confirmation/correction flow.
             logger.info(
                 f"[MEMORY STORAGE]: IGNORED: Key: {key} is write-once immutable and cannot be overwritten."
             )
-            return f"{key} is write-once immutable and cannot be overwritten automatically."
+            return build_structured_storage_result(
+                decision="needs_confirmation",
+                field=key,
+                category=category,
+                existing_value=existing_value,
+                proposed_value=value,
+                reason="immutable field conflict",
+            )
 
         if user_id not in data:
             data[user_id] = {}
@@ -66,9 +104,23 @@ def controlled_structured_data_storage(user_id: str, key: str, value: str, categ
             with open(USER_INFO_PATH, "w") as f:
                 json.dump(data, f, indent=2)
             logger.info(f"[MEMORY STORAGE]: ✅ Structured User data storage success: Stored {key}: {value}")
-            return f"Stored {key}: {value}"
+            return build_structured_storage_result(
+                decision="stored",
+                field=key,
+                category=category,
+                existing_value=existing_value,
+                proposed_value=value,
+                reason="value stored",
+            )
         logger.info(f"[MEMORY STORAGE]: No change for {key}")
-        return f"No change for {key}"
+        return build_structured_storage_result(
+            decision="no_change",
+            field=key,
+            category=category,
+            existing_value=user_data[category][key],
+            proposed_value=value,
+            reason="same value",
+        )
     except Exception as e:
         logger.error(f"[MEMORY STORAGE]: ❌ Error while storing structured User data: {str(e)}")
         return

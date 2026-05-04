@@ -34,6 +34,16 @@ def test_birthdate_is_saved_when_missing(tmp_path, monkeypatch):
 
     stored = json.loads(data_file.read_text())
     assert stored == {"user-1": {"profile": {"birthdate": "1995-04-12"}}}
+    assert state["memory_updates"]["structured_results"] == [
+        {
+            "decision": "stored",
+            "field": "birthdate",
+            "category": "profile",
+            "existing_value": None,
+            "proposed_value": "1995-04-12",
+            "reason": "value stored",
+        }
+    ]
 
 
 def test_birthdate_is_not_overwritten_when_already_present(tmp_path, monkeypatch):
@@ -48,7 +58,38 @@ def test_birthdate_is_not_overwritten_when_already_present(tmp_path, monkeypatch
         category="profile",
     )
 
-    assert result == "birthdate is write-once immutable and cannot be overwritten automatically."
+    assert result == {
+        "decision": "needs_confirmation",
+        "field": "birthdate",
+        "category": "profile",
+        "existing_value": "1995-04-12",
+        "proposed_value": "1998-08-30",
+        "reason": "immutable field conflict",
+    }
+    stored = json.loads(data_file.read_text())
+    assert stored == {"user-1": {"profile": {"birthdate": "1995-04-12"}}}
+
+
+def test_same_immutable_value_is_no_op(tmp_path, monkeypatch):
+    data_file = tmp_path / "user_info.json"
+    data_file.write_text(json.dumps({"user-1": {"profile": {"birthdate": "1995-04-12"}}}))
+    monkeypatch.setattr(user_memory, "USER_INFO_PATH", str(data_file))
+
+    result = user_memory.controlled_structured_data_storage(
+        user_id="user-1",
+        key="birthdate",
+        value="1995-04-12",
+        category="profile",
+    )
+
+    assert result == {
+        "decision": "no_change",
+        "field": "birthdate",
+        "category": "profile",
+        "existing_value": "1995-04-12",
+        "proposed_value": "1995-04-12",
+        "reason": "same immutable value",
+    }
     stored = json.loads(data_file.read_text())
     assert stored == {"user-1": {"profile": {"birthdate": "1995-04-12"}}}
 
@@ -104,6 +145,16 @@ def test_another_person_birthdate_does_not_overwrite_user_birthdate(tmp_path, mo
 
     stored = json.loads(data_file.read_text())
     assert stored == {"user-1": {"profile": {"birthdate": "1995-04-12"}}}
+    assert state["memory_updates"]["structured_results"] == [
+        {
+            "decision": "needs_confirmation",
+            "field": "birthdate",
+            "category": "profile",
+            "existing_value": "1995-04-12",
+            "proposed_value": "2001-02-03",
+            "reason": "immutable field conflict",
+        }
+    ]
 
 
 def test_birthdate_is_retrieved_for_age_question(tmp_path, monkeypatch):

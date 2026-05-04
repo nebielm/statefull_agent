@@ -92,13 +92,16 @@ def memory_updater_node(state: AgentState, runtime: Runtime) -> AgentState:
             "",
         )
         memory_updates = extract_memory_updates(text=f"{last_user_msg}\n{last_ai_msg}")
+        state.setdefault("memory_updates", {})
+        state["memory_updates"]["structured_results"] = []
         for item in memory_updates.get("structured", []):
-            controlled_structured_data_storage(
+            result = controlled_structured_data_storage(
                 key=item["key"],
                 value=item["value"],
                 category=item.get("category"),
                 user_id=user_id,
             )
+            state["memory_updates"]["structured_results"].append(result)
 
         for item in memory_updates.get("unstructured", []):
             controlled_unstructured_data_storage(
