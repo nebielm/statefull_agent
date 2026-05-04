@@ -248,6 +248,101 @@ def test_non_conflicting_results_do_not_generate_confirmation_message(tmp_path, 
     assert "pending_confirmation" not in state["memory_updates"]
 
 
+def test_confirmed_pending_correction_is_applied_on_next_turn(tmp_path, monkeypatch):
+    data_file = tmp_path / "user_info.json"
+    log_file = tmp_path / "memory_decision_log.jsonl"
+    data_file.write_text(json.dumps({"user-1": {"profile": {"birthdate": "1995-04-12"}}}))
+    monkeypatch.setattr(user_memory, "USER_INFO_PATH", str(data_file))
+    monkeypatch.setattr(memory_decision_log, "MEMORY_DECISION_LOG_PATH", str(log_file))
+
+    state = {
+        "user_id": "user-1",
+        "messages": [HumanMessage(content="yes")],
+        "memory_updates": {
+            "pending_confirmation": {
+                "field": "birthdate",
+                "category": "profile",
+                "existing_value": "1995-04-12",
+                "proposed_value": "1996-04-12",
+                "reason": "immutable field conflict",
+            }
+        },
+        "context": {},
+    }
+
+    result = graph.confirmation_resolution_node(state)
+
+    assert result["memory_updates"]["confirmation_resolution"]["status"] == "confirmed"
+    assert "pending_confirmation" not in result["memory_updates"]
+    assert result["messages"][-1].content == "Got it - I updated your birthdate to 1996-04-12."
+    stored = json.loads(data_file.read_text())
+    assert stored == {"user-1": {"profile": {"birthdate": "1996-04-12"}}}
+
+
+def test_rejected_pending_correction_is_discarded_on_next_turn(tmp_path, monkeypatch):
+    data_file = tmp_path / "user_info.json"
+    log_file = tmp_path / "memory_decision_log.jsonl"
+    data_file.write_text(json.dumps({"user-1": {"profile": {"birthdate": "1995-04-12"}}}))
+    monkeypatch.setattr(user_memory, "USER_INFO_PATH", str(data_file))
+    monkeypatch.setattr(memory_decision_log, "MEMORY_DECISION_LOG_PATH", str(log_file))
+
+    state = {
+        "user_id": "user-1",
+        "messages": [HumanMessage(content="no")],
+        "memory_updates": {
+            "pending_confirmation": {
+                "field": "birthdate",
+                "category": "profile",
+                "existing_value": "1995-04-12",
+                "proposed_value": "1996-04-12",
+                "reason": "immutable field conflict",
+            }
+        },
+        "context": {},
+    }
+
+    result = graph.confirmation_resolution_node(state)
+
+    assert result["memory_updates"]["confirmation_resolution"]["status"] == "rejected"
+    assert "pending_confirmation" not in result["memory_updates"]
+    assert result["messages"][-1].content == "Okay, I kept your birthdate as 1995-04-12."
+    stored = json.loads(data_file.read_text())
+    assert stored == {"user-1": {"profile": {"birthdate": "1995-04-12"}}}
+
+
+def test_unclear_pending_correction_is_kept_on_next_turn(tmp_path, monkeypatch):
+    data_file = tmp_path / "user_info.json"
+    data_file.write_text(json.dumps({"user-1": {"profile": {"birthdate": "1995-04-12"}}}))
+    monkeypatch.setattr(user_memory, "USER_INFO_PATH", str(data_file))
+
+    state = {
+        "user_id": "user-1",
+        "messages": [HumanMessage(content="maybe")],
+        "memory_updates": {
+            "pending_confirmation": {
+                "field": "birthdate",
+                "category": "profile",
+                "existing_value": "1995-04-12",
+                "proposed_value": "1996-04-12",
+                "reason": "immutable field conflict",
+            }
+        },
+        "context": {},
+    }
+
+    result = graph.confirmation_resolution_node(state)
+
+    assert result["memory_updates"]["confirmation_resolution"]["status"] == "unclear"
+    assert result["memory_updates"]["pending_confirmation"] == {
+        "field": "birthdate",
+        "category": "profile",
+        "existing_value": "1995-04-12",
+        "proposed_value": "1996-04-12",
+        "reason": "immutable field conflict",
+    }
+    assert result["messages"][-1].content == "Please answer yes or no so I know whether to update your birthdate."
+
+
 def test_birthdate_is_retrieved_for_age_question(tmp_path, monkeypatch):
     data_file = tmp_path / "user_info.json"
     data_file.write_text(json.dumps({"user-1": {"profile": {"birthdate": "1995-04-12"}}}))

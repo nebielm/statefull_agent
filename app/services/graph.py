@@ -7,7 +7,11 @@ from app.core.logging import logger
 from app.llm.extractors import extract_ephemeral_updates, extract_memory_updates, extract_retrieval_plan
 from app.repositories.user_memory import controlled_structured_data_storage, retrieve_structured_memory
 from app.schemas.state import AgentState
-from app.services.memory_confirmation import apply_confirmation_prompt_to_state, build_pending_memory_confirmation
+from app.services.memory_confirmation import (
+    apply_confirmation_prompt_to_state,
+    build_pending_memory_confirmation,
+    resolve_pending_confirmation,
+)
 from app.services.memory import controlled_unstructured_data_storage
 from app.services.retrieval import (
     retrieve_knowledge_docs,
@@ -75,6 +79,40 @@ def agent_node(state: AgentState) -> AgentState:
         return state
     except Exception as e:
         logger.exception(f"[AGENT NODE] Failed: {e}")
+        return state
+
+
+def confirmation_resolution_node(state: AgentState) -> AgentState:
+    logger.info("[CONFIRMATION NODE]: START")
+    try:
+        pending_confirmation = state.get("memory_updates", {}).get("pending_confirmation")
+        state.setdefault("memory_updates", {})
+        if pending_confirmation is None:
+            state["memory_updates"]["confirmation_resolution"] = {"status": "not_applicable"}
+            logger.info("[CONFIRMATION NODE]: No pending confirmation")
+            return state
+
+        last_user_msg = next(
+            (message.content for message in reversed(state["messages"]) if isinstance(message, HumanMessage)),
+            "",
+        )
+        resolution = resolve_pending_confirmation(
+            user_id=str(state.get("user_id")),
+            reply_text=last_user_msg,
+            pending_confirmation=pending_confirmation,
+        )
+        state["memory_updates"]["confirmation_resolution"] = resolution
+        if resolution["status"] in {"confirmed", "rejected"}:
+            state["memory_updates"].pop("pending_confirmation", None)
+        else:
+            state["memory_updates"]["pending_confirmation"] = pending_confirmation
+
+        state["messages"].append(AIMessage(content=resolution["message"]))
+        logger.info(f"[CONFIRMATION NODE]: Resolution status: {resolution['status']}")
+        logger.info("[CONFIRMATION NODE]: END")
+        return state
+    except Exception as e:
+        logger.exception(f"[CONFIRMATION NODE] Failed: {e}")
         return state
 
 
@@ -223,14 +261,33 @@ def agent_router(state: AgentState):
     return "memory_updater"
 
 
+def confirmation_router(state: AgentState):
+    resolution = state.get("memory_updates", {}).get("confirmation_resolution", {})
+    if resolution.get("status") == "not_applicable":
+        logger.info("[CONFIRMATION ROUTER]: No confirmation work --> CONTEXT")
+        return "context_retrieval"
+
+    logger.info("[CONFIRMATION ROUTER]: Confirmation handled --> END")
+    return "end"
+
+
 graph = StateGraph(AgentState)
 
+graph.add_node("confirmation_resolution", confirmation_resolution_node)
 graph.add_node("memory_updater", memory_updater_node)
 graph.add_node("context_retrieval", context_retrieval_node)
 graph.add_node("our_agent", agent_node)
 graph.add_node("tools", ToolNode(tools=tools))
 
-graph.set_entry_point("context_retrieval")
+graph.set_entry_point("confirmation_resolution")
+graph.add_conditional_edges(
+    "confirmation_resolution",
+    confirmation_router,
+    {
+        "context_retrieval": "context_retrieval",
+        "end": END,
+    },
+)
 graph.add_edge("context_retrieval", "our_agent")
 
 graph.add_conditional_edges(

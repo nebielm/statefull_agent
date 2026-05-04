@@ -137,6 +137,61 @@ def controlled_structured_data_storage(user_id: str, key: str, value: str, categ
         return
 
 
+def apply_confirmed_structured_correction(
+    user_id: str,
+    key: str,
+    value: str,
+    category: str,
+    *,
+    expected_existing_value=None,
+):
+    logger.info(
+        f"[MEMORY STORAGE]: Applying confirmed structured correction for key: {key}, value: {value}, category: {category}."
+    )
+
+    if not is_valid_key(key, category):
+        return build_structured_storage_result(
+            decision="ignored",
+            field=key,
+            category=category,
+            proposed_value=value,
+            reason="invalid schema key",
+        )
+
+    os.makedirs(os.path.dirname(USER_INFO_PATH), exist_ok=True)
+    data = load_user_data(USER_INFO_PATH)
+    existing_user_data = data.get(user_id, {})
+    existing_value = lookup_user_value(existing_user_data, key)
+
+    if expected_existing_value is not None and str(existing_value) != str(expected_existing_value):
+        return build_structured_storage_result(
+            decision="ignored",
+            field=key,
+            category=category,
+            existing_value=existing_value,
+            proposed_value=value,
+            reason="pending confirmation mismatch",
+        )
+
+    if user_id not in data:
+        data[user_id] = {}
+    if category not in data[user_id]:
+        data[user_id][category] = {}
+
+    data[user_id][category][key] = value
+    with open(USER_INFO_PATH, "w") as f:
+        json.dump(data, f, indent=2)
+
+    return build_structured_storage_result(
+        decision="confirmed_update_applied",
+        field=key,
+        category=category,
+        existing_value=existing_value,
+        proposed_value=value,
+        reason="user confirmed immutable update",
+    )
+
+
 def retrieve_structured_memory(
     user_id: str,
     relevant_categories: List[str] = None,
