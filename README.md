@@ -1,44 +1,145 @@
 # Stateful Agent
 
-A small LangGraph-based conversational agent with:
-- tool calling
-- structured and unstructured user memory
-- Chroma-backed retrieval
-- OpenRouter chat model integration
-- Hugging Face embeddings
+A recruiter-friendly demo of a memory-aware AI assistant built with LangGraph, OpenRouter, local JSON memory, and Chroma-backed retrieval.
 
-The app currently runs as a CLI chat loop through [`main.py`](main.py).
+The project focuses on a practical problem that makes agents feel more useful over time: remembering user facts, retrieving the right context later, and handling immutable-memory corrections safely instead of silently overwriting them.
 
-## Current Architecture
+## Why This Project Is Interesting
 
-The codebase is now organized by responsibility under [`app/`](app/):
+- Stateful conversations: the agent can store stable user facts and reuse them later.
+- Safe memory updates: immutable fields such as `birthdate` are write-once protected.
+- Correction flow: conflicting immutable updates trigger a confirmation step instead of a silent overwrite.
+- Retrieval safety: planner and ranker outputs are normalized so malformed LLM output does not dump all memory into context.
+- Local auditability: structured memory decisions are logged to JSONL for debugging.
+- Strong offline test coverage: the core memory, retrieval, confirmation, and ranking paths are tested without live model calls.
+
+## Demo Highlights
+
+This repo is best shown with a short CLI demo. The prepared script is in [demo_script.md](/Users/nebielmohammed/Projects/statefull_agent/demo_script.md) and covers:
+
+- saving a birthdate
+- remembering it later
+- deriving age
+- saving food and health preferences
+- using those preferences in recommendations
+- triggering an immutable-memory conflict
+- resolving the conflict with `yes` or `no`
+
+## Architecture Overview
+
+```mermaid
+flowchart TD
+    A["User Turn"] --> B["Confirmation Resolver"]
+    B -->|no pending confirmation| C["Retrieval Planner"]
+    B -->|yes/no/unclear reply| B2["Apply / Reject / Ask Again"]
+    C --> D["Structured Memory Retrieval"]
+    C --> E["Unstructured Memory Retrieval"]
+    C --> F["Knowledge Retrieval"]
+    D --> G["Final Context Ranker"]
+    E --> G
+    F --> G
+    G --> H["Agent + Tool Selection"]
+    H --> I["Memory Updater"]
+    I --> J["Structured Memory Store"]
+    I --> K["Unstructured Memory Store"]
+    J --> L["Decision Log (JSONL)"]
+```
+
+## Project Structure
 
 ```text
 app/
-  api/            placeholder for future routes/controllers
-  core/           settings and shared logging setup
-  db/             vectorstore initialization
-  llm/            LLM client, prompt templates, extraction helpers
-  models/         domain constants/models
-  repositories/   JSON-backed persistence access
-  schemas/        shared state/schema types
-  services/       memory, retrieval, tools, graph, chat loop
-  utils/          small reusable helpers
-prompts/          compatibility wrappers for prompt imports
-tests/            placeholder test package
-data/             runtime-generated local state
+  core/           settings and logging
+  db/             lazy vectorstore setup
+  llm/            model client, prompts, extraction helpers
+  models/         memory schema and domain constants
+  repositories/   JSON persistence and decision logging
+  schemas/        shared state types
+  services/       graph, chat loop, memory, retrieval, tools
+  utils/          reusable helpers
+tests/            offline unit and integration-style tests
 main.py           CLI entry point
+demo_script.md    guided recruiter demo
 ```
 
-## Requirements
+## Memory System
+
+The agent uses two kinds of memory:
+
+### Structured memory
+
+Stored in local JSON and used for stable facts such as:
+
+- `birthdate`
+- `favorite_food`
+- `diet`
+- `goal`
+- `weight`
+
+Structured memory powers deterministic retrieval and features like age derivation.
+
+### Unstructured memory
+
+Stored in Chroma and used for softer context such as:
+
+- dislikes
+- habits
+- preferences
+- background context
+
+### Immutable memory handling
+
+Some fields, such as `birthdate`, are treated as write-once immutable:
+
+- if missing, they can be stored
+- if the same value appears again, nothing changes
+- if a different value appears later, the agent asks for confirmation
+- confirmed changes are applied only through the dedicated confirmation resolver
+
+### Memory decision logging
+
+Every structured memory write attempt produces a JSONL log entry in `data/memory_decision_log.jsonl` with:
+
+- timestamp
+- user id
+- field/category
+- existing and proposed values
+- decision
+- reason
+
+## Testing Strategy
+
+This repo is designed to be demo-friendly and testable without external services.
+
+The test suite covers:
+
+- structured memory persistence
+- immutable overwrite protection
+- confirmation and correction flow
+- decision logging
+- retrieval relevance
+- retrieval planner robustness
+- final context/ranking safety
+- lazy initialization and import safety
+
+The tests are intentionally offline:
+
+- no live OpenRouter calls
+- no live Hugging Face calls
+- no live network access
+- vectorstore-dependent behavior is mocked where determinism matters
+
+## Setup
+
+### Requirements
 
 - Python 3.13
-- A virtual environment at `.venv`
-- An OpenRouter or OpenAI-compatible API key in `.env`
+- a virtual environment at `.venv`
+- an OpenRouter or OpenAI-compatible API key in `.env`
 
-## Environment Variables
+### Environment variables
 
-Create a `.env` file with at least one of:
+Create a `.env` file with one of:
 
 ```env
 OPENROUTER_API_KEY=your_key_here
@@ -51,17 +152,15 @@ Optional:
 HF_TOKEN=your_huggingface_token
 ```
 
-`HF_TOKEN` is not required, but it helps avoid lower rate limits when the embedding model is downloaded from Hugging Face.
+`HF_TOKEN` is not required, but it helps with Hugging Face rate limits and model downloads.
 
-## Install Dependencies
-
-If the environment is not already prepared:
+### Install dependencies
 
 ```bash
-./.venv/bin/pip install requests python-dotenv langchain-core langchain-openai langchain-openrouter langchain-huggingface langchain-community langchain-text-splitters langchain-chroma langgraph chromadb sentence-transformers
+./.venv/bin/pip install -r requirements.txt
 ```
 
-## Run
+## Run Locally
 
 Start the CLI:
 
@@ -69,7 +168,7 @@ Start the CLI:
 ./.venv/bin/python main.py
 ```
 
-You can exit with:
+Exit with:
 
 ```text
 quit
@@ -81,47 +180,53 @@ or
 exit
 ```
 
-## How It Works
+## Run the Demo
 
-On each user turn, the app:
+1. Start the app:
 
-1. extracts a retrieval plan
-2. loads relevant structured memory, unstructured memory, and knowledge
-3. ranks the retrieved context
-4. selects tools if needed
-5. answers the user
-6. writes memory updates back to local storage
+```bash
+./.venv/bin/python main.py
+```
 
-The orchestration graph lives in [`app/services/graph.py`](app/services/graph.py).
+2. Follow the conversation in [demo_script.md](/Users/nebielmohammed/Projects/statefull_agent/demo_script.md).
 
-## Data Directory
+3. Watch for these moments:
 
-The current [`data/`](data/) directory is runtime state, not source code. It contains things like:
+- the agent remembers your birthdate later
+- the age answer is derived from stored memory
+- food recommendations use saved preferences
+- a conflicting birthdate triggers a confirmation question
+- `yes` and `no` replies resolve that pending update safely
 
-- Chroma persistence files
-- user memory
-- local JSON state
+## Example Conversation
 
-Recommended approach:
+```text
+You: I was born on 1995-04-12.
+You: I dislike pork and I am trying to lose weight.
+You: What should I cook today?
+AI: ... recommendation shaped by dislike + goal ...
 
-- Do not commit generated runtime data like `data/user_memory/`, `data/core_knowledge/`, or `data/user_info.json`.
-- If you want seed knowledge in git, commit the raw source documents separately, not the generated Chroma database files.
-- If you want the directory to exist in the repo, keep only a placeholder such as `.gitkeep` or a small `data/README.md`.
+You: How old am I?
+AI: ... derived from the stored birthdate ...
 
-In other words: for this project as it exists now, I would treat `data/` as non-committable generated state.
+You: Actually my birthdate is 1996-04-12.
+AI: I currently have 1995-04-12 saved as your birthdate. Do you want me to replace it with 1996-04-12?
+You: no
+AI: Okay, I kept your birthdate as 1995-04-12.
+```
 
-## Checks
+## CI
 
-The refactored project has been validated with:
+The repo includes a GitHub Actions workflow that:
 
-- Python compile checks
-- import/startup checks
-- CLI smoke test through [`main.py`](main.py)
+- installs dependencies
+- runs `pytest`
+- runs `py_compile`
 
-There is not yet a real automated test suite in [`tests/`](tests/).
+This makes the repo feel more production-ready for reviewers and recruiters.
 
 ## Notes
 
-- Startup initializes embeddings and vectorstores eagerly.
-- On first run, the embedding model may be downloaded from Hugging Face.
-- The app currently uses a CLI interface only; `app/api/` is a placeholder for future expansion.
+- Importing the project is lazy-safe; model clients and vectorstores are created only when needed.
+- Running the CLI still requires real credentials and may download the embedding model on first use.
+- `data/` contains runtime state and should generally not be committed.
