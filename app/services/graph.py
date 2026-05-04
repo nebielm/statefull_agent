@@ -22,6 +22,13 @@ from app.services.tools import get_bound_model, select_tools_via_llm, tools
 from app.utils.validation import validate_agent_output, validate_user_input
 
 
+def normalize_retrieval_plan_items(items):
+    if not isinstance(items, list):
+        return []
+
+    return [item for item in items if isinstance(item, dict)]
+
+
 def agent_node(state: AgentState) -> AgentState:
     """This node will sole the request you input."""
     logger.info("[AGENT NODE]: START")
@@ -185,10 +192,12 @@ def context_retrieval_node(state: AgentState, runtime: Runtime) -> AgentState:
 
         logger.info("[CONTEXT NODE]: Extracting retrieval plan")
         data_to_retrieve = extract_retrieval_plan(text=message)
+        if not isinstance(data_to_retrieve, dict):
+            data_to_retrieve = {}
         logger.info(f"[CONTEXT NODE]: Retrieval plan: {str(data_to_retrieve)}")
 
-        structured_items = data_to_retrieve.get("structured_to_retrieve", [])
-        unstructured_items = data_to_retrieve.get("unstructured_to_retrieve", [])
+        structured_items = normalize_retrieval_plan_items(data_to_retrieve.get("structured_to_retrieve", []))
+        unstructured_items = normalize_retrieval_plan_items(data_to_retrieve.get("unstructured_to_retrieve", []))
 
         relevant_categories = list(
             {
@@ -201,22 +210,28 @@ def context_retrieval_node(state: AgentState, runtime: Runtime) -> AgentState:
         relevant_types = list({item.get("type") for item in unstructured_items if item.get("type")})
 
         logger.info("[CONTEXT NODE]: Retrieving Structured User Data")
-        structured = retrieve_structured_memory(
-            user_id,
-            relevant_categories=relevant_categories,
-            relevant_keys=relevant_keys,
-            k=5,
-        )
+        if relevant_categories or relevant_keys:
+            structured = retrieve_structured_memory(
+                user_id,
+                relevant_categories=relevant_categories,
+                relevant_keys=relevant_keys,
+                k=5,
+            )
+        else:
+            structured = []
         logger.info(f"[CONTEXT NODE]: Structured Data retrieved count: {len(structured)}")
 
         logger.info("[CONTEXT NODE]: Retrieving Unstructured User Data")
-        unstructured_docs = retrieve_unstructured_memory(
-            user_vectorstore=user_vectorstore,
-            message=message,
-            relevant_types=relevant_types,
-            user_id=user_id,
-            k=5,
-        )
+        if relevant_types:
+            unstructured_docs = retrieve_unstructured_memory(
+                user_vectorstore=user_vectorstore,
+                message=message,
+                relevant_types=relevant_types,
+                user_id=user_id,
+                k=5,
+            )
+        else:
+            unstructured_docs = []
         logger.info(f"[CONTEXT NODE]: Unstructured Data retrieved count: {len(unstructured_docs)}")
 
         logger.info("[CONTEXT NODE]: Retrieving Knowledge Base Data")
