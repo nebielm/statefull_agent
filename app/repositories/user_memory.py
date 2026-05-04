@@ -27,8 +27,6 @@ def lookup_user_value(user_data: Dict[str, Any], key: str):
 
 
 def is_valid_key(key, category):
-    if key in IMMUTABLE_KEYS:
-        return False
     return key in MEMORY_SCHEMA.get(category, [])
 
 
@@ -37,12 +35,6 @@ def controlled_structured_data_storage(user_id: str, key: str, value: str, categ
         f"[MEMORY STORAGE]: Started structured user data storage for: key: {key}, value: {value}, category: {category}."
     )
 
-    if key in IMMUTABLE_KEYS:
-        logger.info(
-            f"[MEMORY STORAGE]: IGNORED: Key: {key} is immutable and cannot be stored by agent."
-        )
-        return f"{key} is immutable and cannot be stored by agent."
-
     if not is_valid_key(key, category):
         logger.info(f"[MEMORY STORAGE]: IGNORED: Key: {key} is not allowed in {category}.")
         return f"{key} is not allowed in {category}."
@@ -50,6 +42,18 @@ def controlled_structured_data_storage(user_id: str, key: str, value: str, categ
     try:
         os.makedirs(os.path.dirname(USER_INFO_PATH), exist_ok=True)
         data = load_user_data(USER_INFO_PATH)
+        existing_user_data = data.get(user_id, {})
+        existing_value = lookup_user_value(existing_user_data, key)
+
+        if key in IMMUTABLE_KEYS and existing_value is not None:
+            if str(existing_value) == str(value):
+                logger.info(f"[MEMORY STORAGE]: No change for {key}")
+                return f"No change for {key}"
+            # TODO: Replace this with an explicit confirmation/correction flow.
+            logger.info(
+                f"[MEMORY STORAGE]: IGNORED: Key: {key} is write-once immutable and cannot be overwritten."
+            )
+            return f"{key} is write-once immutable and cannot be overwritten automatically."
 
         if user_id not in data:
             data[user_id] = {}

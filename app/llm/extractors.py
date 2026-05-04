@@ -2,7 +2,7 @@ import json
 from typing import Any, Dict
 
 from app.core.logging import logger
-from app.llm.client import call_llm_json, llm
+from app.llm.client import call_llm_json, get_llm
 from app.llm.prompts.memory import DATA_SELECTION_PROMPT
 from app.llm.prompts.retrieval import DATA_RELEVANCE_PROMPT
 from app.models.memory import ALLOWED_KEYS, ALLOWED_TYPES, IMMUTABLE_KEYS, MEMORY_SCHEMA
@@ -47,7 +47,7 @@ def extract_ephemeral_updates(user_text: str, agent_text: str) -> Dict[str, Any]
     """
 
     try:
-        response = llm.invoke(prompt)
+        response = get_llm().invoke(prompt)
         raw_output = response.content.strip()
     except Exception:
         return {}

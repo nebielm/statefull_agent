@@ -7,13 +7,13 @@ from langchain_community.document_loaders import DirectoryLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.core.logging import logger
-from app.core.settings import (
-    CORE_KNOWLEDGE_COLLECTION,
-    CORE_KNOWLEDGE_DIR,
-    USER_MEMORY_COLLECTION,
-    USER_MEMORY_DIR,
-)
-from app.llm.client import embeddings
+from app.core import settings
+from app.llm.client import get_embeddings
+
+
+_UNINITIALIZED = object()
+_core_vectorstore = _UNINITIALIZED
+_user_memory_vectorstore = _UNINITIALIZED
 
 
 def ingest_knowledge(
@@ -29,11 +29,11 @@ def ingest_knowledge(
 
         vectorstore = Chroma(
             collection_name=collection_name,
-            embedding_function=embeddings,
+            embedding_function=get_embeddings(),
             persist_directory=persist_dir,
         )
 
-        if doc_folder and os.path.exists(doc_folder) and collection_name == CORE_KNOWLEDGE_COLLECTION:
+        if doc_folder and os.path.exists(doc_folder) and collection_name == settings.CORE_KNOWLEDGE_COLLECTION:
             loader = DirectoryLoader(doc_folder, glob="**/*.txt")
             documents = loader.load()
 
@@ -69,18 +69,32 @@ def ingest_knowledge(
         logger.error(f"[System]: ❌ Error while creating {collection_name} Knowledge base:{str(e)}")
 
 
-knowledge_vectorstore = ingest_knowledge(
-    persist_dir=CORE_KNOWLEDGE_DIR,
-    collection_name=CORE_KNOWLEDGE_COLLECTION,
-)
-user_vectorstore = ingest_knowledge(
-    persist_dir=USER_MEMORY_DIR,
-    collection_name=USER_MEMORY_COLLECTION,
-)
+def get_core_vectorstore():
+    global _core_vectorstore
+
+    if _core_vectorstore is _UNINITIALIZED:
+        _core_vectorstore = ingest_knowledge(
+            persist_dir=settings.CORE_KNOWLEDGE_DIR,
+            collection_name=settings.CORE_KNOWLEDGE_COLLECTION,
+        )
+
+    return _core_vectorstore
+
+
+def get_user_memory_vectorstore():
+    global _user_memory_vectorstore
+
+    if _user_memory_vectorstore is _UNINITIALIZED:
+        _user_memory_vectorstore = ingest_knowledge(
+            persist_dir=settings.USER_MEMORY_DIR,
+            collection_name=settings.USER_MEMORY_COLLECTION,
+        )
+
+    return _user_memory_vectorstore
 
 
 def runtime_context():
     return {
-        "knowledge_vectorstore": knowledge_vectorstore,
-        "user_vectorstore": user_vectorstore,
+        "knowledge_vectorstore": get_core_vectorstore(),
+        "user_vectorstore": get_user_memory_vectorstore(),
     }

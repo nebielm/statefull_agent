@@ -3,9 +3,9 @@ from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.runtime import Runtime
 
-from app.repositories.user_memory import controlled_structured_data_storage, retrieve_structured_memory
-from app.llm.extractors import extract_ephemeral_updates, extract_memory_updates, extract_retrieval_plan
 from app.core.logging import logger
+from app.llm.extractors import extract_ephemeral_updates, extract_memory_updates, extract_retrieval_plan
+from app.repositories.user_memory import controlled_structured_data_storage, retrieve_structured_memory
 from app.schemas.state import AgentState
 from app.services.memory import controlled_unstructured_data_storage
 from app.services.retrieval import (
@@ -14,6 +14,7 @@ from app.services.retrieval import (
     retrieve_unstructured_memory,
 )
 from app.services.tools import get_bound_model, select_tools_via_llm, tools
+from app.utils.validation import validate_agent_output, validate_user_input
 
 
 def agent_node(state: AgentState) -> AgentState:
@@ -27,7 +28,6 @@ def agent_node(state: AgentState) -> AgentState:
             (message.content for message in reversed(state["messages"]) if isinstance(message, HumanMessage)),
             "",
         )
-        from app.utils.validation import validate_agent_output, validate_user_input
 
         validate_user_input(text=last_user_msg)
         state["working_memory"]["last_user_msg"] = last_user_msg
@@ -73,7 +73,7 @@ def agent_node(state: AgentState) -> AgentState:
         logger.info("[AGENT NODE]: END")
         return state
     except Exception as e:
-        logger.error(f"[AGENT NODE] Failed: {e}")
+        logger.exception(f"[AGENT NODE] Failed: {e}")
         return state
 
 
@@ -111,7 +111,7 @@ def memory_updater_node(state: AgentState, runtime: Runtime) -> AgentState:
         logger.info("[MEMORY UPDATER NODE]: END")
         return state
     except Exception as e:
-        logger.error(f"[MEMORY UPDATER NODE] Failed: {e}")
+        logger.exception(f"[MEMORY UPDATER NODE] Failed: {e}")
         return state
 
 
@@ -189,7 +189,7 @@ def context_retrieval_node(state: AgentState, runtime: Runtime) -> AgentState:
         logger.info("[CONTEXT NODE]: END")
         return state
     except Exception as e:
-        logger.error(f"[CONTEXT NODE] Failed: {e}")
+        logger.exception(f"[CONTEXT NODE] Failed: {e}")
         return state
 
 

@@ -12,7 +12,7 @@ ALLOWED_KEYS = {
 IMMUTABLE_KEYS = ["name", "birthdate", "country of origin", "skin type"]
 
 MEMORY_SCHEMA = {
-    "profile": ["city", "job", "education"],
+    "profile": ["birthdate", "city", "job", "education"],
     "preferences": ["favorite_food", "hobbies", "diet"],
     "health": ["allergies"],
     "household": ["household_size"],

@@ -4,14 +4,15 @@ from datetime import datetime
 from typing import List
 
 import requests
-from langchain_core.tools import Tool, tool
+from langchain_core.tools import tool
 
 from app.core.logging import logger
-from app.db.vectorstores import knowledge_vectorstore
-from app.llm.client import call_llm_json, llm
+from app.db.vectorstores import get_core_vectorstore
+from app.llm.client import call_llm_json, get_llm
 from app.llm.prompts.tools import TOOL_SELECTION_PROMPT
 from app.repositories.user_memory import load_user_data, lookup_user_value
 from app.services.memory import enrich_knowledge
+from app.utils.dates import calculate_age_from_birthdate
 from app.utils.formatting import format_prompt
 from app.utils.math_tools import safe_eval
 
@@ -61,9 +62,8 @@ def get_current_age(user_id: str) -> float:
             logger.info("[TOOL] CURRENT USER AGE: No birthdate data found.")
             return
 
-        birthdate = datetime.fromisoformat(str(birthdate_value))
         logger.info(f"[TOOL] CURRENT USER AGE: birthday: {birthdate_value}")
-        age = (datetime.now() - birthdate).days // 365
+        age = calculate_age_from_birthdate(birthdate_value)
         logger.info(f"[TOOL] ✅ CURRENT USER AGE: {str(age)}")
         return age
     except Exception as e:
@@ -119,7 +119,7 @@ def semantic_scholar_search(query: str, store: bool = False) -> List[str]:
     for attempt in range(2):
         logger.info(f"[TOOL] SEMANTIC SCHOLAR: Request Attempt: {str(attempt)}")
         try:
-            response = requests.get(url, params=params)
+            response = requests.get(url, params=params, timeout=10)
 
             if response.status_code != 200:
                 logger.info(f"[TOOL] ❌ SEMANTIC SCHOLAR: Bad status: {str(response.status_code)}")
@@ -140,6 +140,7 @@ def semantic_scholar_search(query: str, store: bool = False) -> List[str]:
 
             if store:
                 logger.info("[TOOL] SEMANTIC SCHOLAR: Saving findings in knowledge db")
+                knowledge_vectorstore = get_core_vectorstore()
                 for text in paper_texts:
                     enrich_knowledge(
                         knowledge_vectorstore,
@@ -208,21 +209,14 @@ def get_bound_model(selected_tools):
     """Return an LLM bound to the given list of tools, using cache if available."""
     logger.info("[TOOL SELECTOR]: Selecting Bound model.")
     if not selected_tools:
-        return llm
+        return get_llm()
 
     tool_key = tuple(sorted([current_tool.name for current_tool in selected_tools]))
 
     if tool_key in bound_models_cache:
         return bound_models_cache[tool_key]
 
-    model = llm.bind_tools(selected_tools)
+    model = get_llm().bind_tools(selected_tools)
     bound_models_cache[tool_key] = model
     logger.info("[TOOL SELECTOR]: Tool Bound LLM model selected.")
     return model
-
-
-meta_tool_selector = Tool(
-    name="tool_selector",
-    func=lambda query: select_tools_via_llm(query),
-    description="Decides which tools are needed for a given user query",
-)

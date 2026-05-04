@@ -9,7 +9,7 @@ DATA_SELECTION_PROMPT = """
     {memory_schema}
 
     ---------------------
-    IMMUTABLE KEYS (DO NOT STORE)
+    WRITE-ONCE IMMUTABLE KEYS
     ---------------------
     {immutable_keys}
 
@@ -37,7 +37,10 @@ DATA_SELECTION_PROMPT = """
     ---------------------
     - Extract ONLY explicitly stated facts
     - DO NOT infer or guess
-    - DO NOT store immutable keys
+    - Write-once immutable keys may be stored only when the user explicitly states their own information and the value is currently missing
+    - Do NOT overwrite write-once immutable keys
+    - Do NOT extract another person's birthdate or identity details into the user's memory
+    - If the user says a write-once immutable key is wrong, do NOT emit an automatic replacement
     - NEVER swap key and value
     - DO NOT invent schema keys
 

@@ -4,6 +4,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from app.core.logging import logger
 from app.db.vectorstores import runtime_context
+from app.llm.client import get_llm
 from app.services.graph import app
 
 
@@ -11,6 +12,9 @@ user_id = str(uuid.uuid4())
 
 
 def chat():
+    runtime_context()
+    get_llm()
+
     state = {
         "request_id": uuid.uuid4(),
         "user_id": user_id,
