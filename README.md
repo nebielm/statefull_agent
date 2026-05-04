@@ -4,6 +4,14 @@ A recruiter-friendly demo of a memory-aware AI assistant built with LangGraph, O
 
 The project focuses on a practical problem that makes agents feel more useful over time: remembering user facts, retrieving the right context later, and handling immutable-memory corrections safely instead of silently overwriting them.
 
+## What This Project Demonstrates
+
+- How to build a stateful LLM application instead of a one-shot chatbot.
+- How to combine structured memory, unstructured memory, retrieval, and tool use in one agent flow.
+- How to design safer memory systems with immutable fields, confirmation prompts, and audit logging.
+- How to harden LLM-shaped boundaries such as retrieval planning and final context ranking.
+- How to test agent infrastructure offline without depending on live model calls.
+
 ## Why This Project Is Interesting
 
 - Stateful conversations: the agent can store stable user facts and reuse them later.
@@ -17,13 +25,12 @@ The project focuses on a practical problem that makes agents feel more useful ov
 
 This repo is best shown with a short CLI demo. The prepared script is in [demo_script.md](/Users/nebielmohammed/Projects/statefull_agent/demo_script.md) and covers:
 
-- saving a birthdate
-- remembering it later
-- deriving age
-- saving food and health preferences
-- using those preferences in recommendations
-- triggering an immutable-memory conflict
-- resolving the conflict with `yes` or `no`
+- saving a birthdate as structured memory
+- remembering that birthdate later and deriving age from it
+- storing food and health preferences
+- using saved preferences in a recommendation
+- triggering an immutable-memory conflict on a write-once field
+- resolving that conflict explicitly with `yes` or `no`
 
 ## Architecture Overview
 
@@ -139,16 +146,11 @@ The tests are intentionally offline:
 
 ### Environment variables
 
-Create a `.env` file with one of:
+Copy `.env.example` to `.env` and fill in your own values. The project expects:
 
 ```env
 OPENROUTER_API_KEY=your_key_here
 OPENAI_API_KEY=your_key_here
-```
-
-Optional:
-
-```env
 HF_TOKEN=your_huggingface_token
 ```
 
@@ -193,7 +195,7 @@ exit
 3. Watch for these moments:
 
 - the agent remembers your birthdate later
-- the age answer is derived from stored memory
+- the age answer is derived from stored memory instead of being guessed
 - food recommendations use saved preferences
 - a conflicting birthdate triggers a confirmation question
 - `yes` and `no` replies resolve that pending update safely
@@ -230,3 +232,4 @@ This makes the repo feel more production-ready for reviewers and recruiters.
 - Importing the project is lazy-safe; model clients and vectorstores are created only when needed.
 - Running the CLI still requires real credentials and may download the embedding model on first use.
 - `data/` contains runtime state and should generally not be committed.
+- `.env.example` is safe to commit; `.env` should remain local.

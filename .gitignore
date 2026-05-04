@@ -151,6 +151,7 @@ activemq-data/
 .env
 .envrc
 .venv
+.venv/
 env/
 venv/
 ENV/
@@ -221,3 +222,4 @@ __marimo__/
 
 # Runtime application state
 data/
+logs/
